@@ -23,7 +23,17 @@ namespace CPUFramework
             return DoExecuteSql(cmd, true);
         }
 
-        public static void SaveDataRow(DataRow row, string sprocname)
+        public static void SaveDataTable(DataTable dt, string sprocname)
+        {
+            var rows = dt.Select("","",DataViewRowState.Added | DataViewRowState.ModifiedCurrent);
+            foreach(DataRow r in rows)
+            {
+                SaveDataRow(r, sprocname, false);
+            }
+            dt.AcceptChanges();
+        }
+
+        public static void SaveDataRow(DataRow row, string sprocname, bool acceptchanges = true)
         {
             SqlCommand cmd = GetSqlCommand(sprocname);
             foreach(DataColumn col in row.Table.Columns)
@@ -35,7 +45,6 @@ namespace CPUFramework
                 }
             }
             DoExecuteSql(cmd, false);
-
             foreach(SqlParameter p in cmd.Parameters)
             {
                 if (p.Direction == ParameterDirection.InputOutput) {
@@ -45,6 +54,10 @@ namespace CPUFramework
                         row[colname] = p.Value;
                     }
                 } ;
+            }
+            if(acceptchanges == true)
+            {
+                row.Table.AcceptChanges();
             }
         }
 
@@ -75,7 +88,7 @@ namespace CPUFramework
                     throw new Exception(cmd.CommandText + ": " + ex.Message, ex);
                 }
             }
-            SetAllColumnsAllowNull(dt);
+            SetAllColumnProperties(dt);
             return dt;
         }
 
@@ -114,6 +127,25 @@ namespace CPUFramework
             }
         }
 
+        public static int GetReturnValue(SqlCommand cmd)
+        {
+            int returnvalue = 0;
+            if (cmd.CommandType == CommandType.StoredProcedure)
+            {
+                foreach (SqlParameter p in cmd.Parameters)
+                {
+                    if (p.Direction == ParameterDirection.ReturnValue)
+                    {
+                        if (p.Value != null)
+                        {
+                            returnvalue = (int)p.Value;
+                        }
+                    }
+
+                }
+            }
+            return returnvalue;
+        }
         public static DataTable GetDataTable(string sqlstatement)
         {
             return DoExecuteSql(new SqlCommand(sqlstatement), true);
@@ -143,9 +175,11 @@ namespace CPUFramework
 
         private static string ParseConstraintMsg(string msg)
         {
+            //Cannot insert the value NULL into column 'PartyId', table 'RecordKeeperDB.dbo.President'; column does not allow nulls. INSERT fails. The statement has been terminated.
             string origmsg = msg;
             string prefix = "ck_";
             string msgend = "";
+            string notnullprefix = "Cannot insert the value NULL into column '";
             if (msg.Contains(prefix) == false)
             {
                 if (msg.Contains("u_"))
@@ -156,6 +190,11 @@ namespace CPUFramework
                 else if (msg.Contains("f_"))
                 {
                     prefix = "f_";
+                }
+                else if (msg.Contains(notnullprefix))
+                {
+                    prefix = notnullprefix;
+                    msgend = " cannot be blank.";
                 }
             }
             if (msg.Contains(prefix))
@@ -215,15 +254,54 @@ namespace CPUFramework
             return s;
         }
 
-        private static void SetAllColumnsAllowNull(DataTable dt)
+        public static bool TableHasChanges(DataTable dt)
+        {
+            bool b = false;
+            if(dt.GetChanges() != null)
+            {
+                b = true;
+            }
+            return b;
+        }
+
+        private static void SetAllColumnProperties(DataTable dt)
         {
             foreach (DataColumn c in dt.Columns)
             {
                 c.AllowDBNull = true;
+                c.AutoIncrement = false;
             }
         }
 
-        public static string GetSQl(SqlCommand cmd)
+        public static int GetValueFromFirstRowAsInt(DataTable dt, string columnname)
+        {
+            int value = 0;
+            if (dt.Rows.Count > 0)
+            {
+                DataRow r = dt.Rows[0];
+                if (r[columnname] != null && r[columnname] is int)
+                {
+                    value = (int)r[columnname];
+                }
+            }
+            return value;
+        }
+
+        public static string GetValueFromFirstRowAsString(DataTable dt, string columnname)
+        {
+            string value = "";
+            if (dt.Rows.Count > 0)
+            {
+                DataRow r = dt.Rows[0];
+                if (r[columnname] != null && r[columnname] is string)
+                {
+                    value = (string)r[columnname];
+                }
+            }
+            return value;
+        }
+
+            public static string GetSQl(SqlCommand cmd)
         {
             string val = "";
 #if DEBUG
